@@ -1,0 +1,4 @@
+# Python dependencies for the transcription worker
+openai-whisper>=20231117
+torch>=2.0.0
+
