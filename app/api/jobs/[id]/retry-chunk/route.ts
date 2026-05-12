@@ -5,7 +5,7 @@ import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+export const maxDuration = 299;
 
 // ============================================================
 // POST /api/jobs/[id]/retry-chunk — Retry a failed chunk

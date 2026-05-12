@@ -4,7 +4,7 @@ import { logError, logInfo, logWarn } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+export const maxDuration = 299;
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 * 1024; // 20 GiB
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
