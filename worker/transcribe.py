@@ -22,6 +22,8 @@ import subprocess
 import shutil
 import time
 import uuid
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 
@@ -133,6 +135,51 @@ def get_media_duration(file_path: str) -> float:
     raise RuntimeError("Could not determine media duration")
 
 
+def is_remote_url(value: str) -> bool:
+    """Return True when a path points at a remote HTTP(S) asset."""
+    parsed = urllib.parse.urlparse(value)
+    return parsed.scheme in ("http", "https")
+
+
+def download_remote_media(url: str, upload_dir: str, filename: str) -> str:
+    """Stream a remote media file to local disk for FFmpeg processing."""
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_filename = os.path.basename(filename) or "upload"
+    local_path = os.path.join(upload_dir, safe_filename)
+
+    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+        print(f"Using previously downloaded media: {local_path}")
+        return local_path
+
+    tmp_path = f"{local_path}.part"
+    print(f"Downloading remote media to {local_path}")
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "long-video-transcript-maker/1.0",
+        },
+    )
+
+    bytes_written = 0
+    next_progress = 256 * 1024 * 1024
+    with urllib.request.urlopen(request, timeout=60) as response:
+        with open(tmp_path, "wb") as output:
+            while True:
+                chunk = response.read(8 * 1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+                bytes_written += len(chunk)
+                if bytes_written >= next_progress:
+                    print(f"Downloaded {bytes_written / (1024 * 1024 * 1024):.2f} GiB")
+                    next_progress += 256 * 1024 * 1024
+
+    os.replace(tmp_path, local_path)
+    print(f"Remote media download complete: {bytes_written} bytes")
+    return local_path
+
+
 # ============================================================
 # Audio extraction and splitting
 # ============================================================
@@ -234,8 +281,10 @@ def run_pipeline(job_id: str, db_path: str):
     job = get_job(conn, job_id)
 
     data_dir = os.path.dirname(db_path)
+    uploads_dir = os.path.join(data_dir, "uploads", job_id)
     chunks_dir = os.path.join(data_dir, "chunks", job_id)
     transcripts_dir = os.path.join(data_dir, "transcripts", job_id)
+    os.makedirs(uploads_dir, exist_ok=True)
     os.makedirs(chunks_dir, exist_ok=True)
     os.makedirs(transcripts_dir, exist_ok=True)
 
@@ -252,6 +301,9 @@ def run_pipeline(job_id: str, db_path: str):
         # ---- Step 2: Analyze media ----
         print(f"Analyzing: {original_path}")
         update_job(conn, job_id, status="analyzing")
+
+        if is_remote_url(original_path):
+            original_path = download_remote_media(original_path, uploads_dir, job["filename"])
 
         if not os.path.exists(original_path):
             raise FileNotFoundError(f"Upload file not found: {original_path}")
@@ -477,4 +529,3 @@ if __name__ == "__main__":
     print(f"  PID: {os.getpid()}")
 
     run_pipeline(job_id, db_path)
-

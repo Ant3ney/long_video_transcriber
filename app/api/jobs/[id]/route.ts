@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getJobWithChunks, deleteJob } from "@/lib/db";
 import { cleanupJobFiles } from "@/lib/storage";
+import { logError } from "@/lib/logger";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
 
 // ============================================================
 // GET /api/jobs/[id] — Get job details with all chunks
@@ -19,7 +24,7 @@ export async function GET(
 
     return Response.json({ job });
   } catch (error) {
-    console.error("Failed to get job:", error);
+    logError("jobs.get_failed", error);
     return Response.json(
       { error: "Failed to get job" },
       { status: 500 }
@@ -40,11 +45,10 @@ export async function DELETE(
     deleteJob(id);
     return Response.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete job:", error);
+    logError("jobs.delete_failed", error);
     return Response.json(
       { error: "Failed to delete job" },
       { status: 500 }
     );
   }
 }
-

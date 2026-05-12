@@ -2,15 +2,24 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { updateJob } from "./db";
+import { logError, logInfo, logWarn } from "./logger";
 
 // ============================================================
 // Spawns the Python transcription worker as a child process
 // ============================================================
 
-// Use turbopackIgnore to prevent the bundler from tracing into these dynamic paths
 const PROJECT_ROOT = /* turbopackIgnore: true */ process.cwd();
-const WORKER_SCRIPT = path.join(PROJECT_ROOT, "worker", "transcribe.py");
-const DB_PATH = path.join(PROJECT_ROOT, "data", "transcription.db");
+const WORKER_SCRIPT = path.join(
+  /* turbopackIgnore: true */ process.cwd(),
+  "worker",
+  "transcribe.py"
+);
+const DATA_DIR =
+  process.env.TRANSCRIPT_DATA_DIR ??
+  (process.env.VERCEL
+    ? path.join("/tmp", "transcript-maker")
+    : path.join(/* turbopackIgnore: true */ process.cwd(), "data"));
+const DB_PATH = path.join(DATA_DIR, "transcription.db");
 
 // Track running workers by job ID to prevent duplicate spawns
 const runningWorkers = new Map<string, number>();
@@ -46,12 +55,17 @@ export function spawnWorker(jobId: string): { pid: number } {
   // Prevent duplicate workers for the same job
   if (runningWorkers.has(jobId)) {
     const existingPid = runningWorkers.get(jobId)!;
-    console.log(`[worker] Worker already running for job ${jobId} (PID ${existingPid})`);
+    logWarn("worker.already_running", { job_id: jobId, pid: existingPid });
     return { pid: existingPid };
   }
 
   const pythonCmd = resolvePythonCmd();
-  console.log(`[worker] Spawning worker for job ${jobId} (python: ${pythonCmd})`);
+  logInfo("worker.spawn", {
+    job_id: jobId,
+    python_cmd: pythonCmd,
+    worker_script: WORKER_SCRIPT,
+    db_path: DB_PATH,
+  });
 
   const child = spawn(pythonCmd, [WORKER_SCRIPT, jobId, DB_PATH], {
     cwd: PROJECT_ROOT,
@@ -70,7 +84,7 @@ export function spawnWorker(jobId: string): { pid: number } {
   try {
     updateJob(jobId, { worker_pid: pid } as Record<string, unknown> & { worker_pid: number });
   } catch (e) {
-    console.error(`[worker] Failed to update job PID: ${e}`);
+    logError("worker.pid_update_failed", e, { job_id: jobId, pid });
   }
 
   // Log stdout
@@ -94,7 +108,7 @@ export function spawnWorker(jobId: string): { pid: number } {
   // Handle worker exit
   child.on("close", (code) => {
     runningWorkers.delete(jobId);
-    console.log(`[worker] Worker for job ${jobId.slice(0, 8)} exited with code ${code}`);
+    logInfo("worker.exit", { job_id: jobId, code });
 
     try {
       updateJob(jobId, { worker_pid: null } as Record<string, unknown> & { worker_pid: null });
@@ -105,7 +119,7 @@ export function spawnWorker(jobId: string): { pid: number } {
 
   child.on("error", (err) => {
     runningWorkers.delete(jobId);
-    console.error(`[worker] Failed to spawn worker for job ${jobId}: ${err.message}`);
+    logError("worker.spawn_failed", err, { job_id: jobId });
 
     try {
       updateJob(jobId, {
@@ -130,4 +144,3 @@ export function isWorkerRunning(jobId: string): boolean {
 export function getRunningWorkerJobIds(): string[] {
   return Array.from(runningWorkers.keys());
 }
-

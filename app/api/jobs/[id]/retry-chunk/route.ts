@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getJob, getChunk, updateChunk, updateJob, refreshJobChunkCounts } from "@/lib/db";
 import { spawnWorker, isWorkerRunning } from "@/lib/worker";
+import { logError } from "@/lib/logger";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
 
 // ============================================================
 // POST /api/jobs/[id]/retry-chunk — Retry a failed chunk
@@ -58,11 +63,10 @@ export async function POST(
 
     return Response.json({ success: true, message: "Chunk retry started" });
   } catch (error) {
-    console.error("Failed to retry chunk:", error);
+    logError("jobs.retry_chunk_failed", error);
     return Response.json(
       { error: "Failed to retry chunk" },
       { status: 500 }
     );
   }
 }
-

@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getJob } from "@/lib/db";
 import { mergedTranscriptPath, srtTranscriptPath, readTranscript } from "@/lib/storage";
+import { logError } from "@/lib/logger";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
 
 // ============================================================
 // GET /api/jobs/[id]/transcript-text — Get transcript content as JSON
@@ -32,11 +37,10 @@ export async function GET(
 
     return Response.json({ text: content, format });
   } catch (error) {
-    console.error("Failed to get transcript text:", error);
+    logError("jobs.transcript_text_failed", error);
     return Response.json(
       { error: "Failed to get transcript text" },
       { status: 500 }
     );
   }
 }
-

@@ -5,7 +5,9 @@ import fs from "fs";
 // Filesystem storage layout for uploads, chunks, and transcripts
 // ============================================================
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR =
+  process.env.TRANSCRIPT_DATA_DIR ??
+  (process.env.VERCEL ? path.join("/tmp", "transcript-maker") : path.join(process.cwd(), "data"));
 
 export const DIRS = {
   data: DATA_DIR,
@@ -52,7 +54,7 @@ export function jobTranscriptsDir(jobId: string): string {
 
 /** Get the path where the uploaded file should be stored */
 export function uploadFilePath(jobId: string, filename: string): string {
-  return path.join(jobUploadDir(jobId), filename);
+  return path.join(jobUploadDir(jobId), path.basename(filename));
 }
 
 /** Get the final merged transcript path */
@@ -107,4 +109,3 @@ export function formatDuration(seconds: number): string {
   }
   return `${m}:${String(s).padStart(2, "0")}`;
 }
-

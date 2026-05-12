@@ -7,7 +7,9 @@ import type { Job, Chunk, JobWithChunks, JobProgressSummary } from "./types";
 // SQLite database for persistent job and chunk tracking
 // ============================================================
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR =
+  process.env.TRANSCRIPT_DATA_DIR ??
+  (process.env.VERCEL ? path.join("/tmp", "transcript-maker") : path.join(process.cwd(), "data"));
 const DB_PATH = path.join(DATA_DIR, "transcription.db");
 
 // Ensure data directory exists
@@ -263,4 +265,3 @@ export function resetStalledChunks(jobId: string): void {
     WHERE job_id = ? AND status = 'transcribing'
   `).run(jobId);
 }
-

@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getJob, updateJob, resetStalledChunks } from "@/lib/db";
 import { spawnWorker, isWorkerRunning } from "@/lib/worker";
+import { logError } from "@/lib/logger";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
 
 // ============================================================
 // POST /api/jobs/[id]/resume — Resume an interrupted job
@@ -52,11 +57,10 @@ export async function POST(
       worker_pid: pid,
     });
   } catch (error) {
-    console.error("Failed to resume job:", error);
+    logError("jobs.resume_failed", error);
     return Response.json(
       { error: "Failed to resume job" },
       { status: 500 }
     );
   }
 }
-

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import type { PutBlobResult } from "@vercel/blob";
+import { upload } from "@vercel/blob/client";
 
 // ============================================================
 // File upload area with drag-and-drop and configuration options
@@ -11,6 +13,7 @@ interface UploadAreaProps {
 }
 
 const ACCEPTED_EXTENSIONS = ".mp4,.webm,.avi,.mov,.mkv,.mpeg,.mpg,.mp3,.wav,.flac,.ogg,.m4a";
+const VERCEL_FUNCTION_BODY_LIMIT = 4.5 * 1024 * 1024;
 
 export default function UploadArea({ onJobCreated }: UploadAreaProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -66,6 +69,107 @@ export default function UploadArea({ onJobCreated }: UploadAreaProps) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
+  const shouldUseBlobUpload = (file: File) => {
+    if (process.env.NEXT_PUBLIC_USE_VERCEL_BLOB_UPLOADS === "true") {
+      return true;
+    }
+
+    if (process.env.NEXT_PUBLIC_USE_VERCEL_BLOB_UPLOADS === "false") {
+      return false;
+    }
+
+    return window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1" &&
+      file.size > VERCEL_FUNCTION_BODY_LIMIT;
+  };
+
+  const createBlobJob = async (blob: PutBlobResult, file: File) => {
+    const res = await fetch("/api/jobs", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        source: "vercel-blob",
+        filename: file.name,
+        file_size: file.size,
+        blob_url: blob.url,
+        blob_download_url: blob.downloadUrl,
+        blob_pathname: blob.pathname,
+        chunk_duration_seconds: chunkDuration,
+        overlap_seconds: overlap,
+        whisper_model: whisperModel,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `Job creation failed with status ${res.status}`);
+    }
+
+    return data as { job: { id: string } };
+  };
+
+  const uploadToVercelBlob = async (file: File) => {
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+    const blob = await upload(`uploads/${Date.now()}-${safeName}`, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob-upload",
+      multipart: true,
+      contentType: file.type || "application/octet-stream",
+      clientPayload: JSON.stringify({
+        filename: file.name,
+        size: file.size,
+        chunk_duration_seconds: chunkDuration,
+        overlap_seconds: overlap,
+        whisper_model: whisperModel,
+      }),
+      onUploadProgress: (event) => {
+        setUploadProgress(Math.round(event.percentage));
+      },
+    });
+
+    return createBlobJob(blob, file);
+  };
+
+  const uploadToAppServer = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("chunk_duration_seconds", chunkDuration.toString());
+    formData.append("overlap_seconds", overlap.toString());
+    formData.append("whisper_model", whisperModel);
+
+    // Use XMLHttpRequest for upload progress tracking
+    const xhr = new XMLHttpRequest();
+
+    return new Promise<{ job: { id: string } }>((resolve, reject) => {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.error || "Upload failed"));
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.onabort = () => reject(new Error("Upload cancelled"));
+
+      xhr.open("POST", "/api/jobs");
+      xhr.send(formData);
+    });
+  };
+
   const handleUpload = async () => {
     if (!selectedFile) return;
 
@@ -74,43 +178,9 @@ export default function UploadArea({ onJobCreated }: UploadAreaProps) {
     setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("chunk_duration_seconds", chunkDuration.toString());
-      formData.append("overlap_seconds", overlap.toString());
-      formData.append("whisper_model", whisperModel);
-
-      // Use XMLHttpRequest for upload progress tracking
-      const xhr = new XMLHttpRequest();
-
-      const result = await new Promise<{ job: { id: string } }>(
-        (resolve, reject) => {
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-              setUploadProgress(Math.round((e.loaded / e.total) * 100));
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(JSON.parse(xhr.responseText));
-            } else {
-              try {
-                const err = JSON.parse(xhr.responseText);
-                reject(new Error(err.error || "Upload failed"));
-              } catch {
-                reject(new Error(`Upload failed with status ${xhr.status}`));
-              }
-            }
-          };
-
-          xhr.onerror = () => reject(new Error("Network error during upload"));
-          xhr.onabort = () => reject(new Error("Upload cancelled"));
-
-          xhr.open("POST", "/api/jobs");
-          xhr.send(formData);
-        }
-      );
+      const result = shouldUseBlobUpload(selectedFile)
+        ? await uploadToVercelBlob(selectedFile)
+        : await uploadToAppServer(selectedFile);
 
       setSelectedFile(null);
       setUploadProgress(0);
@@ -291,4 +361,3 @@ export default function UploadArea({ onJobCreated }: UploadAreaProps) {
     </div>
   );
 }
-
